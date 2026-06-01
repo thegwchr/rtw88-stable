@@ -493,6 +493,7 @@ static void rtw_pci_enable_interrupt(struct rtw_dev *rtwdev,
 	rtwpci->irq_enabled = true;
 
 	spin_unlock_irqrestore(&rtwpci->hwirq_lock, flags);
+	printk("rtw88: IMR ENABLED (running=%d)\n", rtwpci->running);
 }
 
 static void rtw_pci_disable_interrupt(struct rtw_dev *rtwdev,
