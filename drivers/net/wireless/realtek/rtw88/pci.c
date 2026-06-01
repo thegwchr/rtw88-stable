@@ -477,7 +477,7 @@ static void rtw_pci_reset_trx_ring(struct rtw_dev *rtwdev)
 	rtw_pci_reset_buf_desc(rtwdev);
 }
 
-static void rtw_pci_enable_interrupt(struct rtw_dev *rtwdev,
+void rtw_pci_enable_interrupt(struct rtw_dev *rtwdev,
 				     struct rtw_pci *rtwpci, bool exclude_rx)
 {
 	unsigned long flags;
