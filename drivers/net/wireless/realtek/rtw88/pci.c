@@ -784,6 +784,16 @@ static void rtw_pci_tx_kick_off_queue(struct rtw_dev *rtwdev,
 	if (!rtw_fw_feature_check(&rtwdev->fw, FW_FEATURE_TX_WAKE))
 		rtw_pci_deep_ps_leave(rtwdev);
 	rtw_write16(rtwdev, bd_idx, ring->r.wp & TRX_BD_IDX_MASK);
+
+	/* DBG: log every BE doorbell so we can compare wp programmed vs what
+	 * tx_isr sees back as cur_rp.  IOLog (no sleep) — safe in TX path. */
+	if (queue == RTW_TX_QUEUE_BE) {
+		static unsigned int _kick_cnt;
+		if ((_kick_cnt++ % 16) == 0)
+			IOLog("rtw88: DBG KICK BE wp=%u rp=%u #%u\n",
+			      ring->r.wp, ring->r.rp, _kick_cnt);
+	}
+
 	spin_unlock_bh(&rtwpci->irq_lock);
 }
 
@@ -962,6 +972,14 @@ static void rtw_pci_tx_isr(struct rtw_dev *rtwdev, struct rtw_pci *rtwpci,
 		count = cur_rp - ring->r.rp;
 	else
 		count = ring->r.len - (ring->r.rp - cur_rp);
+
+	/* Log every BE tx_isr invocation (throttled) — tells us if BEDOK fires */
+	if (hw_queue == RTW_TX_QUEUE_BE) {
+		static unsigned int _isr_cnt;
+		if ((_isr_cnt++ % 4) == 0)
+			IOLog("rtw88: DBG TXISR BE cur_rp=%u rp=%u wp=%u count=%u #%u\n",
+			      cur_rp, ring->r.rp, ring->r.wp, count, _isr_cnt);
+	}
 
 	while (count--) {
 		skb = skb_dequeue(&ring->queue);
