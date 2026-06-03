@@ -221,6 +221,12 @@ static void rtw_sw_beacon_loss_check(struct rtw_dev *rtwdev,
 /* process TX/RX statistics periodically for hardware,
  * the information helps hardware to enhance performance
  */
+/* macOS port diagnostic: when true, the watchdog keeps ticking (so timing is
+ * unchanged) but skips all of its RF-dynamic work (DIG, rate-adapt track, DPK
+ * track, power track) and coex queries.  Used to test whether a periodic RF
+ * routine is wedging the BE TX DMA engine after a few seconds. */
+extern bool rtw88_disable_watchdog_work;
+
 static void rtw_watch_dog_work(struct work_struct *work)
 {
 	struct rtw_dev *rtwdev = container_of(work, struct rtw_dev,
@@ -239,6 +245,10 @@ static void rtw_watch_dog_work(struct work_struct *work)
 
 	ieee80211_queue_delayed_work(rtwdev->hw, &rtwdev->watch_dog_work,
 				     RTW_WATCH_DOG_DELAY_TIME);
+
+	/* Diagnostic: skip all RF-dynamic work + coex queries. */
+	if (rtw88_disable_watchdog_work)
+		goto unlock;
 
 	if (rtwdev->stats.tx_cnt > 100 || rtwdev->stats.rx_cnt > 100)
 		set_bit(RTW_FLAG_BUSY_TRAFFIC, rtwdev->flags);
