@@ -1069,6 +1069,19 @@ void rtw88_get_be_ring_state(struct rtw_dev *rtwdev,
 	if (qlen)  *qlen  = skb_queue_len(&ring->queue);
 }
 
+/* Free descriptor slots in the BE TX ring.  Used by the kext output path to
+ * decide when to apply backpressure (stall) instead of letting a full ring
+ * drop frames.  Lock-free read: wp is written only by the (serialized) TX
+ * submit path, rp only by tx_isr; a momentarily stale rp just yields a
+ * conservative (smaller) avail, which is safe. */
+u32 rtw88_be_ring_avail(struct rtw_dev *rtwdev)
+{
+	struct rtw_pci *rtwpci = (struct rtw_pci *)rtwdev->priv;
+	struct rtw_pci_tx_ring *ring = &rtwpci->tx_rings[RTW_TX_QUEUE_BE];
+
+	return avail_desc(ring->r.wp, ring->r.rp, ring->r.len);
+}
+
 /* Dump the BE buffer-descriptor at slot `idx` (each slot holds two 8-byte
  * descriptors: [0]=tx_pkt_desc, [1]=frame body).  Used to inspect the exact
  * descriptor the HW read pointer is parked on when TX DMA stalls. */
