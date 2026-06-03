@@ -1069,6 +1069,28 @@ void rtw88_get_be_ring_state(struct rtw_dev *rtwdev,
 	if (qlen)  *qlen  = skb_queue_len(&ring->queue);
 }
 
+/* Dump the BE buffer-descriptor at slot `idx` (each slot holds two 8-byte
+ * descriptors: [0]=tx_pkt_desc, [1]=frame body).  Used to inspect the exact
+ * descriptor the HW read pointer is parked on when TX DMA stalls. */
+void rtw88_get_be_bd(struct rtw_dev *rtwdev, u32 idx,
+		     u32 *dma0, u32 *dma1, u16 *bufsz0, u16 *bufsz1, u16 *psb0)
+{
+	struct rtw_pci *rtwpci = (struct rtw_pci *)rtwdev->priv;
+	struct rtw_pci_tx_ring *ring = &rtwpci->tx_rings[RTW_TX_QUEUE_BE];
+	struct rtw_pci_tx_buffer_desc *bd;
+
+	if (!ring->r.head || idx >= ring->r.len)
+		return;
+
+	bd = (struct rtw_pci_tx_buffer_desc *)((u8 *)ring->r.head +
+					       idx * ring->r.desc_size);
+	if (dma0)   *dma0   = le32_to_cpu(bd[0].dma);
+	if (dma1)   *dma1   = le32_to_cpu(bd[1].dma);
+	if (bufsz0) *bufsz0 = le16_to_cpu(bd[0].buf_size);
+	if (bufsz1) *bufsz1 = le16_to_cpu(bd[1].buf_size);
+	if (psb0)   *psb0   = le16_to_cpu(bd[0].psb_len);
+}
+
 static void rtw_pci_rx_isr(struct rtw_dev *rtwdev)
 {
 	struct rtw_pci *rtwpci = (struct rtw_pci *)rtwdev->priv;
