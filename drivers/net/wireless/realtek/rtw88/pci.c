@@ -15,7 +15,13 @@
 #include "mac.h"
 
 static bool rtw_disable_msi;
-static bool rtw_pci_disable_aspm;
+/* macOS port: default ASPM OFF.  On this platform the PCIe link's CLKREQ#/L1
+ * substate handshake is unreliable; letting the link enter ASPM L1 stalls the
+ * device's bus-master DMA (both TX and RX freeze together) while MMIO/config
+ * access still works — exactly the "device loss if HW misbehaves on the link"
+ * case rtw_pci_link_cfg() warns about.  Keeping the chip's CLKREQ/ASPM HW
+ * modules disabled holds the link in L0 so DMA never stalls. */
+static bool rtw_pci_disable_aspm = true;
 module_param_named(disable_msi, rtw_disable_msi, bool, 0644);
 module_param_named(disable_aspm, rtw_pci_disable_aspm, bool, 0644);
 MODULE_PARM_DESC(disable_msi, "Set Y to disable MSI interrupt support");
@@ -972,12 +978,29 @@ static void rtw_pci_tx_isr(struct rtw_dev *rtwdev, struct rtw_pci *rtwpci,
 	else
 		count = ring->r.len - (ring->r.rp - cur_rp);
 
+	/* Safety: if chip reports more completions than we have queued,
+	 * something is wrong (e.g. hw_rp > hw_wp race or ring desync).
+	 * Clamp to the actual queue depth to avoid cascading underrun
+	 * that permanently breaks the ring.
+	 */
+	{
+		u32 queued = skb_queue_len(&ring->queue);
+		if (count > queued) {
+			IOLog("rtw88: TXISR DESYNC q%d: count=%u > queued=%u "
+			      "(cur_rp=%u rp=%u wp=%u len=%u), clamping\n",
+			      hw_queue, count, queued,
+			      cur_rp, ring->r.rp, ring->r.wp, ring->r.len);
+			count = queued;
+		}
+	}
+
 	/* Log every BE tx_isr invocation (throttled) — tells us if BEDOK fires */
 	if (hw_queue == RTW_TX_QUEUE_BE) {
 		static unsigned int _isr_cnt;
+		u32 qlen = skb_queue_len(&ring->queue);
 		if ((_isr_cnt++ % 4) == 0)
-			IOLog("rtw88: DBG TXISR BE cur_rp=%u rp=%u wp=%u count=%u #%u\n",
-			      cur_rp, ring->r.rp, ring->r.wp, count, _isr_cnt);
+			IOLog("rtw88: DBG TXISR BE cur_rp=%u rp=%u wp=%u count=%u qlen=%u #%u\n",
+			      cur_rp, ring->r.rp, ring->r.wp, count, qlen, _isr_cnt);
 	}
 
 	while (count--) {
@@ -1028,6 +1051,22 @@ static void rtw_pci_tx_isr(struct rtw_dev *rtwdev, struct rtw_pci *rtwpci,
 	}
 
 	ring->r.rp = cur_rp;
+}
+
+/*
+ * Export BE TX ring software state for the debug poller in rtw88_compat.c.
+ * We can't include pci.h from compat (include-path shadowing), so this
+ * helper bridges the gap.
+ */
+void rtw88_get_be_ring_state(struct rtw_dev *rtwdev,
+			     u32 *sw_wp, u32 *sw_rp, u32 *qlen)
+{
+	struct rtw_pci *rtwpci = (struct rtw_pci *)rtwdev->priv;
+	struct rtw_pci_tx_ring *ring = &rtwpci->tx_rings[RTW_TX_QUEUE_BE];
+
+	if (sw_wp) *sw_wp = ring->r.wp;
+	if (sw_rp) *sw_rp = ring->r.rp;
+	if (qlen)  *qlen  = skb_queue_len(&ring->queue);
 }
 
 static void rtw_pci_rx_isr(struct rtw_dev *rtwdev)
