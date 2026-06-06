@@ -1764,11 +1764,16 @@ static int rtw_pci_napi_init(struct rtw_dev *rtwdev)
 {
 	struct rtw_pci *rtwpci = (struct rtw_pci *)rtwdev->priv;
 
+#ifdef RTW88_MACOS
+	rtwpci->netdev = NULL;
+	netif_napi_add(NULL, &rtwpci->napi, rtw_pci_napi_poll);
+#else
 	rtwpci->netdev = alloc_netdev_dummy(0);
 	if (!rtwpci->netdev)
 		return -ENOMEM;
 
 	netif_napi_add(rtwpci->netdev, &rtwpci->napi, rtw_pci_napi_poll);
+#endif
 	return 0;
 }
 
@@ -1778,7 +1783,10 @@ static void rtw_pci_napi_deinit(struct rtw_dev *rtwdev)
 
 	rtw_pci_napi_stop(rtwdev);
 	netif_napi_del(&rtwpci->napi);
-	free_netdev(rtwpci->netdev);
+	if (rtwpci->netdev) {
+		free_netdev(rtwpci->netdev);
+		rtwpci->netdev = NULL;
+	}
 }
 
 static pci_ers_result_t rtw_pci_io_err_detected(struct pci_dev *pdev,
@@ -1929,10 +1937,10 @@ void rtw_pci_remove(struct pci_dev *pdev)
 
 	rtw_unregister_hw(rtwdev, hw);
 	rtw_pci_disable_interrupt(rtwdev, rtwpci);
+	rtw_pci_free_irq(rtwdev, pdev);
 	rtw_pci_napi_deinit(rtwdev);
 	rtw_pci_destroy(rtwdev, pdev);
 	rtw_pci_declaim(rtwdev, pdev);
-	rtw_pci_free_irq(rtwdev, pdev);
 	rtw_core_deinit(rtwdev);
 	ieee80211_free_hw(hw);
 }
