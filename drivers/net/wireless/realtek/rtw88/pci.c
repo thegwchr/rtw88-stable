@@ -694,31 +694,13 @@ static void rtw_pci_dma_check(struct rtw_dev *rtwdev,
 	const struct rtw_chip_info *chip = rtwdev->chip;
 	struct rtw_pci_rx_buffer_desc *buf_desc;
 	u32 desc_sz = chip->rx_buf_desc_sz;
-	u16 total_pkt_size = 0;
-	int i;
+	u16 total_pkt_size;
 
 	buf_desc = (struct rtw_pci_rx_buffer_desc *)(rx_ring->r.head +
 						     idx * desc_sz);
+	total_pkt_size = le16_to_cpu(buf_desc->total_pkt_size);
 
-	/* The hardware advances the RX ring write-pointer a moment before the
-	 * descriptor's DMA write is guaranteed visible to the CPU.  total_pkt_size
-	 * doubles as a completion tag that only equals rx_tag once the descriptor
-	 * has fully landed, so wait for it (bounded) rather than parsing a
-	 * half-written descriptor.  Same for-loop+udelay pattern as
-	 * __pci_flush_queue().  The common case (tag already matched) exits at i=0
-	 * with no delay; the wait only triggers under the DMA race.  This used to be
-	 * masked by the macOS port flushing each RX frame up the stack individually,
-	 * which paced the loop — batching that flush exposed the race as
-	 * "pci bus timeout" log spam and RX latency.
-	 */
-	for (i = 0; i < 30; i++) {
-		total_pkt_size = le16_to_cpu(READ_ONCE(buf_desc->total_pkt_size));
-		if (total_pkt_size == rtwpci->rx_tag)
-			break;
-		udelay(1);
-	}
-
-	/* rx tag mismatch after the wait, throw a warning */
+	/* rx tag mismatch, throw a warning */
 	if (total_pkt_size != rtwpci->rx_tag)
 		rtw_warn(rtwdev, "pci bus timeout, check dma status\n");
 
